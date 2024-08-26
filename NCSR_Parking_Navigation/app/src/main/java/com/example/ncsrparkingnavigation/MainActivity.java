@@ -24,20 +24,22 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
-import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+
+import java.io.InputStream;
+import java.util.Iterator;
+import java.io.FileReader;
+import java.util.Map;
+import android.content.Context;
+import android.content.res.AssetManager;
 import java.util.Objects;
 
 public class MainActivity extends AppCompatActivity implements AdapterView.OnItemClickListener{
@@ -50,13 +52,85 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     private String foundLat;
     private String foundLon;
     private String foundStreetId;
+    private Map<String, String> sensorsToLocation;
+    Map<String, List<String>> parkingCsvData;
+
+
+    protected Map<String, String> mapSensorsToLocations(Context context, String fileName) {
+        Map<String, String> map = new HashMap<>();
+        StringBuilder jsonContent = new StringBuilder();
+
+        AssetManager assetManager = context.getAssets();
+
+        try (InputStream is = assetManager.open(fileName);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                jsonContent.append(line);
+                System.out.println(line);
+            }
+
+            JSONObject jsonObject = new JSONObject(jsonContent.toString());
+            Iterator<String> keys = jsonObject.keys();
+
+            while (keys.hasNext()) {
+                String key = keys.next();
+                JSONObject innerObject = jsonObject.getJSONObject(key);
+                JSONArray idArray = innerObject.getJSONArray("id");
+
+                for (int i = 0; i < idArray.length(); i++) {
+                    String idValue = idArray.getString(i);
+                    map.put(idValue, key);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return map;
+    }
+
+    protected Map<String, List<String>> readParkingCSV(Context context, String fileName) {
+        Map<String, List<String>> dataMap = new HashMap<>();
+        AssetManager assetManager = context.getAssets();
+
+        try (InputStream is = assetManager.open(fileName);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(is))) {
+
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] values = line.split(",");
+
+                if (values.length > 0) {
+                    String key = values[0]; // First item as key
+                    List<String> valuesList = new ArrayList<>();
+
+                    for (int i = 1; i < values.length; i++) {
+                        valuesList.add(values[i]); // Remaining items as list values
+                    }
+
+                    dataMap.put(key, valuesList);
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return dataMap;
+    }
+
 
     @SuppressLint("ClickableViewAccessibility")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
-
+        sensorsToLocation = mapSensorsToLocations(this, "parking-list.json");
+        parkingCsvData = readParkingCSV(this, "parking-static.csv");
+        System.out.println("****************************");
+        System.out.println(parkingCsvData);
+        System.out.println("****************************");
         AutoCompleteTextView acdropdown = findViewById(R.id.acDropdown);
         radioGroup = findViewById(R.id.constrGroup);
         resultText = findViewById(R.id.resultMsg);
@@ -93,8 +167,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
         navBtn.setOnClickListener(view -> openMapActivity());
     }
 
-    public void openMapActivity()
-    {
+    public void openMapActivity() {
         Intent intent = new Intent(this, MapActivity.class);
         intent.putExtra("lat", foundLat);
         intent.putExtra("lon", foundLon);
@@ -102,62 +175,38 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     }
 
     @SuppressLint("StaticFieldLeak")
-    public void findAvailableSpot()
-    {
+    public void findAvailableSpot() {
         List<String> ncsr_locations = Arrays.asList(getResources().getStringArray(R.array.ncsr_locations));
         if (ncsr_locations.contains(choice)) {
             resultText.setBackgroundColor(Color.parseColor("#abf5a7"));
             int selectedId = radioGroup.getCheckedRadioButtonId();
             RadioButton constraintRadioBtn = findViewById(selectedId);
 
-            if(selectedId == -1) {
+            if (selectedId == -1) {
                 resultText.setBackgroundColor(Color.parseColor("#ffb976"));
                 resultText.setText(getString(R.string.invalidConstraintMsg));
-            }
-            else {
-                //data fetching
-                new AsyncTask<String, Void, String>(){
+            } else {
+                // Replace the existing data fetching logic with an API call
+                new AsyncTask<Void, Void, String>() {
                     @Override
-                    protected void onPreExecute(){
+                    protected void onPreExecute() {
                         super.onPreExecute();
                         resultText.setVisibility(View.INVISIBLE);
                         findSpot.setText(getString(R.string.loadingBtn));
                     }
+
                     @Override
-                    protected String doInBackground(String... params) {
+                    protected String doInBackground(Void... voids) {
                         HttpURLConnection urlConnection = null;
-
-                        String data = "from(bucket: \"gigacampus2-parking\") " +
-                                "|> range(start: -5m) " +
-                                "|> filter(fn: (r) => r._measurement == \"parking_status\" and r._field == \"occupied\" and r._value == 0) " +
-                                "|> group( columns: [\"id\"] ) |> sort( columns: [\"_time\"], desc: false ) " +
-                                "|> last() |> keep( columns: [\"id\"] ) |> group()";
-
                         try {
-                            URL url = new URL(params[0]);
+                            // Your API URL
+                            URL url = new URL("https://demokritos.smartiscity.gr/api/api.php?func=parkingAll&lang=el");
                             urlConnection = (HttpURLConnection) url.openConnection();
-                            urlConnection.setRequestMethod("POST");
-                            urlConnection.setRequestProperty("Authorization", "Token OpZihwsUM-5IrinGcpH0CDD2cXP9tbFWikdP6kgZlRLXjySElZwLqn5mLfHfmoR6hVtKCF-XmmeMOB20OIe8-w==");
-                            urlConnection.setRequestProperty("Accept", "application/csv");
-                            urlConnection.setRequestProperty("Content-Type", "application/vnd.flux");
-                            urlConnection.setDoOutput(true);
-                            urlConnection.setDoInput(true);
-                            urlConnection.setChunkedStreamingMode(0);
-
-                            OutputStream out = new BufferedOutputStream(urlConnection.getOutputStream());
-                            BufferedWriter writer;
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
-                                writer = new BufferedWriter(new OutputStreamWriter(
-                                        out, StandardCharsets.UTF_8));
-                            }
-                            else
-                                writer = new BufferedWriter(new OutputStreamWriter(
-                                        out, "UTF-8"));
-                            writer.write(data);
-                            writer.flush();
+                            urlConnection.setRequestMethod("GET");
+                            urlConnection.setRequestProperty("Accept", "application/json");
 
                             int code = urlConnection.getResponseCode();
-                            if (code !=  200) {
+                            if (code != 200) {
                                 throw new IOException("Invalid response from server: " + code);
                             }
 
@@ -177,202 +226,203 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                                 urlConnection.disconnect();
                             }
                         }
-
                         return null;
                     }
 
                     @Override
-                    protected void onPostExecute(String s){
-                        super.onPostExecute(s);
+                    protected void onPostExecute(String response) {
+                        super.onPostExecute(response);
                         findSpot.setText(getString(R.string.btnFunc));
-                        for(String str : s.split("\n")){
-                            resultData.add(str.split(",")[3]);
-                        }
-                        resultData.remove(0);
+                        if (response != null) {
 
-                        StringBuilder csv_data = new StringBuilder();
-                        StringBuilder json_data = new StringBuilder();
+                            try {
+                                JSONArray jsonArray = new JSONArray(response);
+                                resultData.clear();
+                                for (int i = 0; i < jsonArray.length(); i++) {
+                                    JSONObject spot = jsonArray.getJSONObject(i);
+                                    if (!spot.getBoolean("IsOccupied")) {
+                                        resultData.add(spot.getString("id"));
+                                    }
+                                }
 
-                        //read parking csv
-                        try {
-                            BufferedReader rd = new BufferedReader(new InputStreamReader(getAssets().open("parking-static.csv")));
-                            String line;
-                            while ((line = rd.readLine()) != null){
-                                csv_data.append(line).append("\n");
+                                String foundSpot = findSpotBasedOnConstraints(resultData, constraintRadioBtn.getText().toString(), jsonArray);
+                                /*System.out.println("*****************");
+                                System.out.println(foundSpot);
+                                System.out.println("*****************");*/
+                                updateUI(foundSpot, jsonArray);
+                            } catch (JSONException e) {
+                                e.printStackTrace();
+                                resultText.setBackgroundColor(Color.parseColor("#ffb976"));
+                                resultText.setText(getString(R.string.invalidMsg));
                             }
-                            rd.close();
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-
-                        //convert csv to hashmap
-                        HashMap<String, List<String>> csvHashmap = new HashMap<>();
-                        for(String str : csv_data.toString().split("\n")){
-                            String key = str.split(",")[0];
-                            List<String> value;
-                            if(str.split(",").length == 5)
-                                value = new ArrayList<>(Arrays.asList(str.split(",")[1], str.split(",")[2],
-                                                                    str.split(",")[4]));
-                            else
-                                value = new ArrayList<>(Arrays.asList(str.split(",")[1], str.split(",")[2], ""));
-                            csvHashmap.put(key, value);
-                        }
-
-                        //read json with parking spot id's
-                        try {
-                            BufferedReader rd = new BufferedReader(new InputStreamReader(getAssets().open("parking-list.json")));
-                            String line;
-                            while ((line = rd.readLine()) != null){
-                                json_data.append(line).append("\n");
-                            }
-                            rd.close();
-                        } catch (IOException e) {
-                            throw new RuntimeException(e);
-                        }
-
-                        JSONObject jsonParser;
-                        try {
-                            jsonParser = new JSONObject(json_data.toString());
-
-                        } catch (JSONException e) {
-                            throw new RuntimeException(e);
-                        }
-
-                        //check order
-                        List<String> order1 = new ArrayList<>(Arrays.asList("Lefkippos1","Lefkippos2","Tesla","Library1","Library2"));
-                        List<String> order2 = new ArrayList<>(Arrays.asList("Tesla","Lefkippos1","Lefkippos2","Library1","Library2"));
-                        List<String> order3 = new ArrayList<>(Arrays.asList("Library2","Library1","Tesla","Lefkippos1","Lefkippos2"));
-                        List<String> order4 = new ArrayList<>(Arrays.asList("Library1","Library2","Tesla","Lefkippos1","Lefkippos2"));
-
-                        //check constraints and rules
-                        String foundSpot = "";
-                        String constraintData = constraintRadioBtn.getText().toString();
-                        if(constraintData.equals(getString(R.string.rb1))){
-                            if(resultData.contains("399")) {
-                                foundSpot = "399";
-                            }
-                        }
-                        else{
-                            if(constraintData.equals(getString(R.string.rb2))) {
-                                order1.remove("Lefkippos1");
-                                order1.remove("Library2");
-                                order2.remove("Lefkippos1");
-                                order2.remove("Library2");
-                                order3.remove("Lefkippos1");
-                                order3.remove("Library2");
-                                order4.remove("Lefkippos1");
-                                order4.remove("Library2");
-                            }
-
-                            if(choice.equals("Lefkippos") || choice.equals("Technology Park") || choice.equals("SCio")
-                                    || choice.equals("Fuelics")){
-
-                                foundSpot = getParkingSpot(order1, jsonParser, constraintData);
-                            }
-                            else if(choice.equals("Tesla")){
-                                foundSpot = getParkingSpot(order2, jsonParser, constraintData);
-                            }
-                            else if(choice.equals("Roboskel")){
-                                foundSpot = getParkingSpot(order3, jsonParser, constraintData);
-                            }
-                            else if(choice.equals("Library") || choice.equals("Innovation Office")){
-                                foundSpot = getParkingSpot(order4, jsonParser, constraintData);
-                            }
-                        }
-
-                        if(foundSpot.equals("")){
+                        } else {
                             resultText.setBackgroundColor(Color.parseColor("#ffb976"));
-                            resultText.setText(getString(R.string.noVacancyMsg));
+                            resultText.setText(getString(R.string.invalidMsg));
                         }
-                        else{
-                            resultText.setBackgroundColor(Color.parseColor("#abf5a7"));
-
-                            if(foundSpot.equals("399")) {
-                                resultText.setText(getString(R.string.motabilitySpotDesc));
-                                foundStreetId = "";
-                                foundLat = Objects.requireNonNull(csvHashmap.get(foundSpot)).get(0);
-                                foundLon = Objects.requireNonNull(csvHashmap.get(foundSpot)).get(1);
-                            }
-                            else {
-                                if(foundSpot.contains(",")) {
-                                    foundStreetId = Objects.requireNonNull(csvHashmap.get(foundSpot.split(",")[0])).get(2) + ", "
-                                            + Objects.requireNonNull(csvHashmap.get(foundSpot.split(",")[1])).get(2);
-                                    resultText.setText(foundStreetId);
-                                    foundLat = Objects.requireNonNull(csvHashmap.get(foundSpot.split(",")[0])).get(0);
-                                    foundLon = Objects.requireNonNull(csvHashmap.get(foundSpot.split(",")[0])).get(1);
-                                }
-                                else {
-                                    foundStreetId = Objects.requireNonNull(csvHashmap.get(foundSpot)).get(2);
-                                    resultText.setText(foundStreetId);
-                                    foundLat = Objects.requireNonNull(csvHashmap.get(foundSpot)).get(0);
-                                    foundLon = Objects.requireNonNull(csvHashmap.get(foundSpot)).get(1);
-                                }
-                            }
-                        }
-                        resultText.setVisibility(View.VISIBLE);
-                        navBtn.setEnabled(true);
                     }
-                }.execute("http://83.212.75.16:8086/api/v2/query?orgID=4180de514f7a8ab2");
+                }.execute();
             }
-        }
-        else{
+        } else {
             resultText.setBackgroundColor(Color.parseColor("#ffb976"));
             resultText.setText(getString(R.string.invalidMsg));
-            if(resultText.getVisibility() == View.INVISIBLE)
+            if (resultText.getVisibility() == View.INVISIBLE)
                 resultText.setVisibility(View.VISIBLE);
         }
     }
 
-    @Override
-    public void onItemClick(AdapterView<?> parent, View view, int pos, long id) {
-        choice = parent.getItemAtPosition(pos).toString();
-        Toast.makeText(getApplicationContext(), choice, Toast.LENGTH_LONG).show();
+    private String findSpotBasedOnConstraints(List<String> availableSpots, String constraint, JSONArray jsonArray) {
+        List<String> ruleOrder = getOrderBasedOnLocation(choice);
+        /*System.out.println("#################");
+        System.out.println(ruleOrder);
+        System.out.println("#################");*/
+        return getParkingSpot(ruleOrder, jsonArray, constraint, availableSpots);
     }
 
-    private String getParkingSpot(List<String> ruleOrder, JSONObject jsonPrsr, String constraint)
-    {
-        JSONArray idArray;
-        String foundSpot = "";
-        boolean found = false;
-        for(String str : ruleOrder) {
-            try {
-                idArray = jsonPrsr.getJSONObject(str).getJSONArray("id");
-            } catch (JSONException e) {
-                throw new RuntimeException(e);
-            }
+    private void updateUI(String foundSpot, JSONArray jsonArray) {
+        if (foundSpot.isEmpty()) {
+            resultText.setBackgroundColor(Color.parseColor("#ffb976"));
+            resultText.setText(getString(R.string.noVacancyMsg));
+        } else {
+            resultText.setBackgroundColor(Color.parseColor("#abf5a7"));
 
-            if(constraint.equals(getString(R.string.rb2))) {
-                if(idArray.length() >= 2) {
-                    for (int i = 0; i < (idArray.length() - 1); i++) {
-                        try {
-                            if (resultData.contains(idArray.getString(i)) && resultData.contains(idArray.getString(i + 1))) {
-                                found = true;
-                                foundSpot = idArray.getString(i) + "," + idArray.getString(i + 1);
-                                break;
-                            }
-                        } catch (JSONException e) {
-                            throw new RuntimeException(e);
-                        }
+            try {
+                JSONObject spot = null;
+                for (int i = 0; i < jsonArray.length(); i++) {
+                    if (jsonArray.getJSONObject(i).getString("id").equals(foundSpot)) {
+                        spot = jsonArray.getJSONObject(i);
+                        break;
                     }
                 }
+
+                if (spot != null) {
+                    foundLat = spot.getString("Lat");
+                    foundLon = spot.getString("Lon");
+                    foundStreetId = spot.getString("LabelOnStreet");
+                    resultText.setText(foundStreetId);
+                }
+
+            } catch (JSONException e) {
+                e.printStackTrace();
             }
-            else{
-                for (int i = 0; i < idArray.length(); i++) {
-                    try {
-                        if (resultData.contains(idArray.getString(i))) {
-                            found = true;
-                            foundSpot = idArray.getString(i);
+
+            resultText.setVisibility(View.VISIBLE);
+            navBtn.setEnabled(true);
+        }
+    }
+
+    private List<String> getOrderBasedOnLocation(String choice) {
+        List<String> order1 = new ArrayList<>(Arrays.asList("Lefkippos1", "Lefkippos2", "Tesla", "Library1", "Library2"));
+        List<String> order2 = new ArrayList<>(Arrays.asList("Tesla", "Lefkippos1", "Lefkippos2", "Library1", "Library2"));
+        List<String> order3 = new ArrayList<>(Arrays.asList("Library2", "Library1", "Tesla", "Lefkippos1", "Lefkippos2"));
+        List<String> order4 = new ArrayList<>(Arrays.asList("Library1", "Library2", "Tesla", "Lefkippos1", "Lefkippos2"));
+
+        if (choice.equals("Lefkippos") || choice.equals("Technology Park") || choice.equals("SCio")
+                || choice.equals("Fuelics")) {
+            return order1;
+        } else if (choice.equals("Tesla")) {
+            return order2;
+        } else if (choice.equals("Roboskel")) {
+            return order3;
+        } else if (choice.equals("Library") || choice.equals("Innovation Office")) {
+            return order4;
+        }
+
+        return new ArrayList<>();
+    }
+
+    private String getParkingSpot(List<String> ruleOrder, JSONArray jsonArray, String constraint, List<String> availableSpots) {
+        System.out.println(availableSpots);
+        System.out.println("Length " + jsonArray.length());
+
+        String foundSpot = "";
+
+        if (constraint.equalsIgnoreCase("Motability car") && availableSpots.contains("399")){
+            foundSpot = "399";
+            List<String> sensorData = parkingCsvData.get(foundSpot);
+            foundStreetId = "";
+            foundLat = Objects.requireNonNull(sensorData.get(0));
+            foundLon = Objects.requireNonNull(sensorData.get(1));
+        }
+
+        if(constraint.equalsIgnoreCase("Long vehicle")) {
+
+            if (ruleOrder.contains("Lefkippos1")) {
+                ruleOrder.remove("Lefkippos1");
+            }
+
+            if (ruleOrder.contains("Library2")) {
+                ruleOrder.remove("Library2");
+            }
+
+        }
+
+        for (String preferredSpot : ruleOrder) {
+            for (int i = 0; i < jsonArray.length(); i++) {
+                try {
+                    JSONObject spot = jsonArray.getJSONObject(i);
+                    String spotId = spot.getString("id");
+
+                    System.out.println("ID " + spot.getString("id"));
+
+                    if (!spot.getBoolean("IsOccupied") && availableSpots.contains(spotId)) {
+
+                        System.out.println("constraint " + constraint + " preferredSpot = " + preferredSpot + " LabelOnStreet = " + spot.getString("LabelOnStreet"));
+                        //
+                        System.out.println();
+
+
+                        if (preferredSpot.equalsIgnoreCase(sensorsToLocation.get(spotId)) && !(constraint.equalsIgnoreCase("Motability car")) ){//&&
+                                // ((constraint.equalsIgnoreCase("Regular") && spot.getString("Type").equalsIgnoreCase("Κανονική")) ||
+                                // (constraint.equalsIgnoreCase("Motability car") && spot.getString("Type").equalsIgnoreCase("ΑΜΕΑ"))) ) {
+                            // if id is in selected location and type constrain is satisfied
+                            //
+                            foundSpot = spotId;
+                            List<String> sensorData = parkingCsvData.get(foundSpot);
+                            foundStreetId = Objects.requireNonNull(sensorData.get(3));
+                            foundLat = Objects.requireNonNull(sensorData.get(0));
+                            foundLon = Objects.requireNonNull(sensorData.get(1));
                             break;
                         }
-                    } catch (JSONException e) {
-                        throw new RuntimeException(e);
+
+                        /*if (preferredSpot.equalsIgnoreCase(spot.getString("LabelOnStreet"))
+                                && matchesConstraint(spot, constraint)) {
+                            return spotId;
+                        }*/
                     }
+
+                } catch (JSONException e) {
+                    e.printStackTrace();
                 }
             }
-
-            if(found) break;
         }
 
         return foundSpot;
+
+
+    }
+
+
+
+    /*
+    private boolean matchesConstraint(JSONObject spot, String constraint) {
+        try {
+            if (constraint.equals(getString(R.string.rb1))) {
+                return true; // No specific constraint
+            } else if (constraint.equals(getString(R.string.rb2))) {
+                return spot.getBoolean("DisabledAccess");
+            }
+            //else if (constraint.equals(getString(R.string.rb3))) {
+            //    return spot.getBoolean("ChargingStation");
+            //}
+        } catch (JSONException e) {
+            e.printStackTrace();
+        }
+        return false;
+    }*/
+
+    @Override
+    public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
+        findSpot.setEnabled(true);
+        choice = adapterView.getItemAtPosition(i).toString();
     }
 }
