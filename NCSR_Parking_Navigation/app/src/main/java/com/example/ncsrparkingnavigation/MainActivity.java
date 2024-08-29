@@ -103,11 +103,11 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                 String[] values = line.split(",");
 
                 if (values.length > 0) {
-                    String key = values[0]; // First item as key
+                    String key = values[0];
                     List<String> valuesList = new ArrayList<>();
 
                     for (int i = 1; i < values.length; i++) {
-                        valuesList.add(values[i]); // Remaining items as list values
+                        valuesList.add(values[i]);
                     }
 
                     dataMap.put(key, valuesList);
@@ -126,11 +126,10 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
         sensorsToLocation = mapSensorsToLocations(this, "parking-list.json");
         parkingCsvData = readParkingCSV(this, "parking-static.csv");
-        System.out.println("****************************");
-        System.out.println(parkingCsvData);
-        System.out.println("****************************");
+
         AutoCompleteTextView acdropdown = findViewById(R.id.acDropdown);
         radioGroup = findViewById(R.id.constrGroup);
         resultText = findViewById(R.id.resultMsg);
@@ -186,7 +185,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                 resultText.setBackgroundColor(Color.parseColor("#ffb976"));
                 resultText.setText(getString(R.string.invalidConstraintMsg));
             } else {
-                // Replace the existing data fetching logic with an API call
                 new AsyncTask<Void, Void, String>() {
                     @Override
                     protected void onPreExecute() {
@@ -199,7 +197,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                     protected String doInBackground(Void... voids) {
                         HttpURLConnection urlConnection = null;
                         try {
-                            // Your API URL
                             URL url = new URL("https://demokritos.smartiscity.gr/api/api.php?func=parkingAll&lang=el");
                             urlConnection = (HttpURLConnection) url.openConnection();
                             urlConnection.setRequestMethod("GET");
@@ -246,9 +243,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                                 }
 
                                 String foundSpot = findSpotBasedOnConstraints(resultData, constraintRadioBtn.getText().toString(), jsonArray);
-                                /*System.out.println("*****************");
-                                System.out.println(foundSpot);
-                                System.out.println("*****************");*/
                                 updateUI(foundSpot, jsonArray);
                             } catch (JSONException e) {
                                 e.printStackTrace();
@@ -272,9 +266,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
 
     private String findSpotBasedOnConstraints(List<String> availableSpots, String constraint, JSONArray jsonArray) {
         List<String> ruleOrder = getOrderBasedOnLocation(choice);
-        /*System.out.println("#################");
-        System.out.println(ruleOrder);
-        System.out.println("#################");*/
         return getParkingSpot(ruleOrder, jsonArray, constraint, availableSpots);
     }
 
@@ -297,9 +288,19 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                 if (spot != null) {
                     foundLat = spot.getString("Lat");
                     foundLon = spot.getString("Lon");
-                    foundStreetId = spot.getString("LabelOnStreet");
+                    foundSpot = spot.getString("id");
+                    List<String> sensorData = parkingCsvData.get(foundSpot);
+
+                    if (foundSpot.equalsIgnoreCase("399")){
+                        foundStreetId = "♿";
+                    }
+                    else{
+                        foundStreetId = Objects.requireNonNull(sensorData.get(3));
+                    }
                     resultText.setText(foundStreetId);
                 }
+
+
 
             } catch (JSONException e) {
                 e.printStackTrace();
@@ -331,8 +332,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
     }
 
     private String getParkingSpot(List<String> ruleOrder, JSONArray jsonArray, String constraint, List<String> availableSpots) {
-        System.out.println(availableSpots);
-        System.out.println("Length " + jsonArray.length());
 
         String foundSpot = "";
 
@@ -362,20 +361,9 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                     JSONObject spot = jsonArray.getJSONObject(i);
                     String spotId = spot.getString("id");
 
-                    System.out.println("ID " + spot.getString("id"));
-
                     if (!spot.getBoolean("IsOccupied") && availableSpots.contains(spotId)) {
 
-                        System.out.println("constraint " + constraint + " preferredSpot = " + preferredSpot + " LabelOnStreet = " + spot.getString("LabelOnStreet"));
-                        //
-                        System.out.println();
-
-
-                        if (preferredSpot.equalsIgnoreCase(sensorsToLocation.get(spotId)) && !(constraint.equalsIgnoreCase("Motability car")) ){//&&
-                                // ((constraint.equalsIgnoreCase("Regular") && spot.getString("Type").equalsIgnoreCase("Κανονική")) ||
-                                // (constraint.equalsIgnoreCase("Motability car") && spot.getString("Type").equalsIgnoreCase("ΑΜΕΑ"))) ) {
-                            // if id is in selected location and type constrain is satisfied
-                            //
+                        if (preferredSpot.equalsIgnoreCase(sensorsToLocation.get(spotId)) && !(constraint.equalsIgnoreCase("Motability car")) ){
                             foundSpot = spotId;
                             List<String> sensorData = parkingCsvData.get(foundSpot);
                             foundStreetId = Objects.requireNonNull(sensorData.get(3));
@@ -384,10 +372,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
                             break;
                         }
 
-                        /*if (preferredSpot.equalsIgnoreCase(spot.getString("LabelOnStreet"))
-                                && matchesConstraint(spot, constraint)) {
-                            return spotId;
-                        }*/
                     }
 
                 } catch (JSONException e) {
@@ -400,25 +384,6 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
 
 
     }
-
-
-
-    /*
-    private boolean matchesConstraint(JSONObject spot, String constraint) {
-        try {
-            if (constraint.equals(getString(R.string.rb1))) {
-                return true; // No specific constraint
-            } else if (constraint.equals(getString(R.string.rb2))) {
-                return spot.getBoolean("DisabledAccess");
-            }
-            //else if (constraint.equals(getString(R.string.rb3))) {
-            //    return spot.getBoolean("ChargingStation");
-            //}
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
-        return false;
-    }*/
 
     @Override
     public void onItemClick(AdapterView<?> adapterView, View view, int i, long l) {
