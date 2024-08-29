@@ -33,13 +33,20 @@ import org.osmdroid.views.overlay.mylocation.DirectedLocationOverlay;
 import java.util.ArrayList;
 import java.util.Arrays;
 
-public class MapActivity extends AppCompatActivity {
+import android.os.Handler;
+import android.widget.Toast;
+
+
+public class MapActivity extends AppCompatActivity  implements LocationListener{
     private final int REQUEST_PERMISSIONS_REQUEST_CODE = 1;
     private MapView map = null;
     private LocationManager locationManager;
     private DirectedLocationOverlay myLocationOverlay;
     private GeoPoint startPoint;
     private GeoPoint endPoint;
+    private Polyline roadOverlay;
+    private IMapController mapController;
+    private Handler handler = new Handler();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -101,9 +108,13 @@ public class MapActivity extends AppCompatActivity {
             myLocationOverlay.setLocation(startPoint);
         }
 
-        IMapController mapController = map.getController();
+        mapController = map.getController();
         mapController.setZoom(19.3);
         mapController.setCenter(startPoint);
+
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, this);
+        }
 
         //found point to navigate to
         endPoint = new GeoPoint(foundLat, foundLon);
@@ -144,6 +155,8 @@ public class MapActivity extends AppCompatActivity {
         map.onPause();  //needed for compass, my location overlays, v6.0.0 and up
     }
 
+
+
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
@@ -173,45 +186,50 @@ public class MapActivity extends AppCompatActivity {
         }
     }
 
-//    @Override public void onLocationChanged(final Location pLoc) {
-//        long currentTime = System.currentTimeMillis();
-//        if (mIgnorer.shouldIgnore(pLoc.getProvider(), currentTime))
-//            return;
-//        double dT = currentTime - mLastTime;
-//        if (dT < 100.0){
-//            //Toast.makeText(this, pLoc.getProvider()+" dT="+dT, Toast.LENGTH_SHORT).show();
-//            return;
-//        }
-//        mLastTime = currentTime;
-//
-//        GeoPoint newLocation = new GeoPoint(pLoc);
-//        if (!myLocationOverlay.isEnabled()){
-//            //we get the location for the first time:
-//            myLocationOverlay.setEnabled(true);
-//            map.getController().animateTo(newLocation);
-//        }
-//
-//        GeoPoint prevLocation = myLocationOverlay.getLocation();
-//        myLocationOverlay.setLocation(newLocation);
-//        myLocationOverlay.setAccuracy((int)pLoc.getAccuracy());
-//
-//        if (prevLocation != null && pLoc.getProvider().equals(LocationManager.GPS_PROVIDER)){
-//            mSpeed = pLoc.getSpeed() * 3.6;
-//
-//            //TODO: check if speed is not too small
-//            if (mSpeed >= 0.1){
-//                mAzimuthAngleSpeed = pLoc.getBearing();
-//                myLocationOverlay.setBearing(mAzimuthAngleSpeed);
-//            }
-//        }
-//
-//        if (mTrackingMode){
-//            //keep the map view centered on current location:
-//            map.getController().animateTo(newLocation);
-//            map.setMapOrientation(-mAzimuthAngleSpeed);
-//        } else {
-//            //just redraw the location overlay:
-//            map.invalidate();
-//        }
-//    }
+
+    @Override
+    public void onLocationChanged(@NonNull Location location) {
+        GeoPoint newLocation = new GeoPoint(location.getLatitude(), location.getLongitude());
+
+        if (!myLocationOverlay.isEnabled()) {
+            myLocationOverlay.setEnabled(true);
+        }
+
+        myLocationOverlay.setLocation(newLocation);
+        myLocationOverlay.setAccuracy((int) location.getAccuracy());
+
+        // Recalculate the route from the new location to the destination
+        updateRoute(newLocation);
+
+        // Center the map on the new location
+        mapController.setCenter(newLocation);
+        map.invalidate();
+    }
+
+    private void updateRoute(GeoPoint newLocation) {
+        if (roadOverlay != null) {
+            map.getOverlays().remove(roadOverlay);
+        }
+
+        ArrayList<GeoPoint> waypoints = new ArrayList<>();
+        waypoints.add(newLocation);
+        waypoints.add(endPoint);
+
+        RoadManager roadManager = new OSRMRoadManager(this, Configuration.getInstance().getUserAgentValue());
+        Road road = roadManager.getRoad(waypoints);
+        roadOverlay = RoadManager.buildRoadOverlay(road);
+        map.getOverlays().add(roadOverlay);
+        map.invalidate();
+    }
+
+    @Override
+    public void onProviderDisabled(@NonNull String provider) {
+        Toast.makeText(this, "GPS Disabled. Please enable it for navigation.", Toast.LENGTH_LONG).show();
+    }
+
+    @Override
+    public void onProviderEnabled(@NonNull String provider) {
+        Toast.makeText(this, "GPS Enabled.", Toast.LENGTH_SHORT).show();
+    }
+
 }
