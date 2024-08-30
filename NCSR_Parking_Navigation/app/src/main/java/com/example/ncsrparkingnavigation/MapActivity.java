@@ -198,10 +198,11 @@ public class MapActivity extends AppCompatActivity  implements LocationListener{
         myLocationOverlay.setLocation(newLocation);
         myLocationOverlay.setAccuracy((int) location.getAccuracy());
 
-        // Recalculate the route from the new location to the destination
+        float bearing = location.getBearing();
+        myLocationOverlay.setBearing(bearing);
+
         updateRoute(newLocation);
 
-        // Center the map on the new location
         mapController.setCenter(newLocation);
         map.invalidate();
     }

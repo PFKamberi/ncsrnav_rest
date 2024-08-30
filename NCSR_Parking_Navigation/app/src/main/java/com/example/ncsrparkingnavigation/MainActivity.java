@@ -68,7 +68,7 @@ public class MainActivity extends AppCompatActivity implements AdapterView.OnIte
             String line;
             while ((line = reader.readLine()) != null) {
                 jsonContent.append(line);
-                System.out.println(line);
+
             }
 
             JSONObject jsonObject = new JSONObject(jsonContent.toString());
